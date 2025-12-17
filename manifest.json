@@ -1,7 +1,7 @@
 {
 	"id": "lunar-solar-sync",
 	"name": "农历转换器（Lunar Solar Sync）",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"minAppVersion": "1.5.12",
 	"description": "将笔记属性中的农历转换为公历，可对单笔记或全库执行，有丰富的自定义选项",
 	"author": "dangehub",
