@@ -193,7 +193,21 @@ class LunarSolarSettingTab extends PluginSettingTab {
       new Setting(containerEl)
         .setName("输出键名模板")
         .setDesc(
-          "支持 moment 格式，使用转换后的公历日期格式化；纯文本会自动用 [] 转义，例如 [birthday]-YYYY。"
+          createFragment((el) => {
+            el.append(
+              "支持 moment.js 格式的变量，纯文本请使用 [] 转义，例如 [birthday]-YYYY会被换为birthday-2025。 "
+            );
+            el.createEl("a", {
+              href: "https://momentjs.com/docs/#/displaying/format/",
+              text: "更多语法，请参阅",
+            });
+            el.createEl("div", {
+              text: `当前示例：${formatSampleKey(
+                this.plugin.settings.outputKeyPattern
+              )}`,
+              attr: { style: "color: var(--text-accent);" },
+            });
+          })
         )
         .addText((text) =>
           text
@@ -237,7 +251,21 @@ class LunarSolarSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("输出日期格式")
-      .setDesc("使用 moment 格式，例如 YYYY-MMM-ddd。")
+      .setDesc(
+        createFragment((el) => {
+          el.append("支持 moment.js 格式的变量，纯文本请使用 [] 转义，例如 YYYY-MM-dd 会被转换为 2025-12-17。 ");
+          el.createEl("a", {
+            href: "https://momentjs.com/docs/#/displaying/format/",
+            text: "更多语法，请参阅",
+          });
+          el.createEl("div", {
+            text: `当前示例：${formatSampleDate(
+              this.plugin.settings.outputDateFormat
+            )}`,
+            attr: { style: "color: var(--text-accent);" },
+          });
+        })
+      )
       .addText((text) =>
         text
           .setPlaceholder("YYYY-MM-DD")
@@ -487,6 +515,27 @@ function escapeLiteralForMoment(pattern: string): string {
 function wrapLiteral(text: string): string {
   if (!text) return "";
   return `[${text.replace(/]/g, "\\]")}]`;
+}
+
+function formatSampleKey(pattern: string): string {
+  const safePattern = pattern?.trim() || "[birthday]-YYYY";
+  const fmt = escapeLiteralForMoment(safePattern);
+  try {
+    return moment().format(fmt);
+  } catch (e) {
+    console.warn("输出键名模板预览失败", e);
+    return "格式错误";
+  }
+}
+
+function formatSampleDate(format: string): string {
+  const fmt = format?.trim() || "YYYY-MM-DD";
+  try {
+    return moment().format(fmt);
+  } catch (e) {
+    console.warn("输出日期格式预览失败", e);
+    return "格式错误";
+  }
 }
 
 async function processFile(
