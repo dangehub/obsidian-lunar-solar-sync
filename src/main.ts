@@ -5,6 +5,8 @@ import {
   PluginSettingTab,
   Setting,
   TFile,
+  TFolder,
+  FuzzySuggestModal,
   moment,
   normalizePath,
   parseYaml,
@@ -32,7 +34,7 @@ interface LunarSolarSettings {
   rangeFuture: number;
   defaultLeapStrategy: LeapStrategy;
   leapStrategyKey: string;
-  targetFolder: string;
+  targets: string[];
 }
 
 const DEFAULT_SETTINGS: LunarSolarSettings = {
@@ -45,7 +47,7 @@ const DEFAULT_SETTINGS: LunarSolarSettings = {
   rangeFuture: 1,
   defaultLeapStrategy: "forward",
   leapStrategyKey: "闰月处理模式",
-  targetFolder: "",
+  targets: [],
 };
 
 const LEAP_STRATEGY_LABEL: Record<LeapStrategy, string> = {
@@ -97,12 +99,18 @@ export default class LunarSolarSyncPlugin extends Plugin {
   }
 
   private getMarkdownFiles(): TFile[] {
-    const target = this.settings.targetFolder.trim();
+    const targets = (this.settings.targets || []).map((t) =>
+      normalizePath(t.trim())
+    ).filter(Boolean);
     const markdownFiles = this.app.vault.getMarkdownFiles();
-    if (!target) return markdownFiles;
-    const folderPath = normalizePath(target);
-    const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
-    return markdownFiles.filter((file) => file.path.startsWith(prefix));
+    if (targets.length === 0) return markdownFiles;
+    return markdownFiles.filter((file) => {
+      return targets.some((target) => {
+        if (file.path === target) return true;
+        const folderPrefix = target.endsWith("/") ? target : `${target}/`;
+        return file.path.startsWith(folderPrefix);
+      });
+    });
   }
 
   async runOnActiveFile() {
@@ -307,18 +315,7 @@ class LunarSolarSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("目标目录（可选）")
-      .setDesc("仅在“对所有笔记执行”命令时生效；为空则遍历全部 Markdown。")
-      .addText((text) =>
-        text
-          .setPlaceholder("folder/path")
-          .setValue(this.plugin.settings.targetFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.targetFolder = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
+    this.renderTargets(containerEl);
 
     new Setting(containerEl)
       .setName("立即对全部笔记执行")
@@ -326,9 +323,71 @@ class LunarSolarSettingTab extends PluginSettingTab {
         button
           .setButtonText("运行")
           .setCta()
-          .onClick(async () => {
-            new Notice("开始转换所有笔记…");
-            await (this.plugin as LunarSolarSyncPlugin).runOnAll();
+      .onClick(async () => {
+        new Notice("开始转换所有笔记…");
+        await (this.plugin as LunarSolarSyncPlugin).runOnAll();
+      })
+      );
+  }
+
+  private renderTargets(containerEl: HTMLElement) {
+    containerEl.createEl("h3", { text: "目标（可多选）" });
+    containerEl.createEl("div", {
+      text: "可添加多个文件或目录，执行“全部”命令时仅遍历这些路径；列表为空则处理全库。",
+    });
+
+    const wrapper = containerEl.createDiv();
+    wrapper.setAttr(
+      "style",
+      "margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--background-modifier-border);"
+    );
+
+    const listEl = wrapper.createDiv();
+    const renderList = () => {
+      listEl.empty();
+      this.plugin.settings.targets.forEach((path, idx) => {
+        new Setting(listEl)
+          .setName(`目标 ${idx + 1}`)
+          .setDesc(path || "（空路径）")
+          .addExtraButton((btn) =>
+            btn
+              .setIcon("folder")
+              .setTooltip("更改为其他文件/目录")
+              .onClick(() => {
+                new PathSuggestModal(this.app, (value) => {
+                  this.plugin.settings.targets[idx] = value;
+                  this.plugin.saveSettings();
+                  renderList();
+                }).open();
+              })
+          )
+          .addExtraButton((btn) =>
+            btn
+              .setIcon("trash")
+              .setTooltip("删除")
+              .onClick(async () => {
+                this.plugin.settings.targets.splice(idx, 1);
+                await this.plugin.saveSettings();
+                renderList();
+              })
+          );
+      });
+    };
+    renderList();
+
+    new Setting(wrapper)
+      .setName("添加目标")
+      .setDesc("从现有文件/目录中选择，追加到列表。")
+      .addButton((btn) =>
+        btn
+          .setButtonText("选择并添加")
+          .setCta()
+          .onClick(() => {
+            new PathSuggestModal(this.app, async (value) => {
+              this.plugin.settings.targets.push(value);
+              await this.plugin.saveSettings();
+              renderList();
+            }).open();
           })
       );
   }
@@ -625,4 +684,31 @@ async function writeFrontmatter(
   const newContent = `---\n${yaml}\n---\n${body}`;
   await app.vault.modify(file, newContent);
   return true;
+}
+class PathSuggestModal extends FuzzySuggestModal<string> {
+  private onChoose: (value: string) => void;
+
+  constructor(app: App, onChoose: (value: string) => void) {
+    super(app);
+    this.onChoose = onChoose;
+    this.setPlaceholder("选择文件或目录");
+  }
+
+  getItems(): string[] {
+    const items: string[] = [];
+    this.app.vault.getAllLoadedFiles().forEach((f) => {
+      if (f instanceof TFile || f instanceof TFolder) {
+        items.push(f.path);
+      }
+    });
+    return items;
+  }
+
+  getItemText(item: string): string {
+    return item;
+  }
+
+  onChooseItem(item: string): void {
+    this.onChoose(item);
+  }
 }
